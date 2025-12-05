@@ -5,6 +5,14 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 // You can override this with GEMINI_MODEL in your environment.
 const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.0-flash";
 
+type GeminiTextResponse = {
+  candidates?: Array<{
+    content?: {
+      parts?: Array<{ text?: string }>;
+    };
+  }>;
+};
+
 export async function POST(req: NextRequest) {
   if (!GEMINI_API_KEY) {
     return NextResponse.json(
@@ -62,7 +70,7 @@ User question: ${prompt}`;
       );
     }
 
-    const data = (await res.json()) as any;
+    const data = (await res.json()) as GeminiTextResponse;
     const answer: string | undefined =
       data?.candidates?.[0]?.content?.parts?.[0]?.text ?? undefined;
 

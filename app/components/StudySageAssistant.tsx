@@ -27,7 +27,7 @@ const StudySageAssistant: React.FC = () => {
       const reply: ChatMessage = {
         role: "assistant",
         content:
-          "I can't assist you in that. Please ask me about studying, learning, or general knowledge.",
+          "I can&apos;t assist you in that. Please ask me about studying, learning, or general knowledge.",
       };
       setMessages((prev) => [...prev, reply]);
       return;
@@ -45,7 +45,7 @@ const StudySageAssistant: React.FC = () => {
         const reply: ChatMessage = {
           role: "assistant",
           content:
-            "I'm having trouble reaching my brain right now. Please try again in a moment.",
+            "I&apos;m having trouble reaching my brain right now. Please try again in a moment.",
         };
         setMessages((prev) => [...prev, reply]);
         return;
@@ -56,7 +56,7 @@ const StudySageAssistant: React.FC = () => {
         role: "assistant",
         content:
           data.answer ??
-          "I couldn't generate a helpful answer this time. Please try rephrasing your question.",
+          "I couldn&apos;t generate a helpful answer this time. Please try rephrasing your question.",
       };
       setMessages((prev) => [...prev, reply]);
     } catch (err) {
@@ -123,7 +123,7 @@ const StudySageAssistant: React.FC = () => {
                     : "text-slate-300 hover:text-white"
                 }`}
               >
-                Other (I won't assist)
+                Other (I won&apos;t assist)
               </button>
             </div>
           </div>
@@ -131,8 +131,8 @@ const StudySageAssistant: React.FC = () => {
           <div className="flex-1 px-4 py-3 space-y-2 overflow-y-auto max-h-72 text-sm">
             {messages.length === 0 && (
               <p className="text-xs text-slate-400">
-                Ask StudySage anything about what you're learning—math, history, code, exam prep,
-                or general knowledge.
+                Ask StudySage anything about what you&apos;re learning&mdash;math, history, code,
+                exam prep, or general knowledge.
               </p>
             )}
             {messages.map((m, idx) => (
@@ -163,7 +163,7 @@ const StudySageAssistant: React.FC = () => {
               onKeyDown={handleKeyDown}
               rows={2}
               className="w-full text-xs bg-slate-900/80 text-slate-100 rounded-lg px-2 py-1.5 outline-none border border-slate-700 focus:border-indigo-500 resize-none"
-              placeholder="Ask a question about what you're studying…"
+              placeholder="Ask a question about what you&apos;re studying…"
             />
             <div className="mt-1 flex justify-end">
               <button
@@ -179,7 +179,6 @@ const StudySageAssistant: React.FC = () => {
         </div>
       )}
 
-      {/* Floating button */}
       <button
         type="button"
         onClick={() => setIsOpen((o) => !o)}

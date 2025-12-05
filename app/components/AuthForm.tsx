@@ -29,16 +29,12 @@ export default function AuthForm({ mode, onAuthSuccess }: Props) {
         await createUserWithEmailAndPassword(auth, email, password);
       }
       onAuthSuccess();
-    } catch (err: any) {
-      setError(err.message);
-    }
-  };
-
-  const toggleMode = () => {
-    if (mode === "login") {
-      router.push("/signup");
-    } else {
-      router.push("/login");
+    } catch (err) {
+      if (err instanceof Error) {
+        setError(err.message);
+      } else {
+        setError("Authentication failed. Please try again.");
+      }
     }
   };
 
@@ -53,8 +49,12 @@ export default function AuthForm({ mode, onAuthSuccess }: Props) {
       setIsResetting(true);
       await sendPasswordResetEmail(auth, email);
       setSuccess("Password reset email sent. Check your inbox.");
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err) {
+      if (err instanceof Error) {
+        setError(err.message);
+      } else {
+        setError("Could not send password reset email. Please try again.");
+      }
     } finally {
       setIsResetting(false);
     }

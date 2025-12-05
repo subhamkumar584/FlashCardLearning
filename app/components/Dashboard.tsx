@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { db, auth } from "@/firebase/config";
 import {
   collection,
@@ -23,12 +23,13 @@ import StudyPresence from "./StudyPresence";
 import { fetchBestYoutubeUrl } from "@/app/utils/fetchYoutube";
 import StudyPlanner from "./StudyPlanner";
 import QuizLauncher from "./QuizLauncher";
-import { SkeletonGrid, LoadingSpinner } from "./Loading";
+import { SkeletonGrid } from "./Loading";
 import StudySageAssistant from "./StudySageAssistant";
 import confetti from "canvas-confetti";
 
-const YOUTUBE_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_API_KEY!;
-const BOOKS_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_API_KEY!;
+// NOTE: env vars are read inside effects or functions, but they should NOT be included in dependency arrays.
+const YOUTUBE_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_API_KEY;
+const BOOKS_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_API_KEY;
 
 interface User {
   uid: string;
@@ -58,6 +59,10 @@ export default function Dashboard({ user }: { user: User }) {
   const [statsRefreshKey, setStatsRefreshKey] = useState(0);
   const [lastQuizScore, setLastQuizScore] = useState<LastQuizScore | null>(null);
 
+  // ref to track which card ids we've already attempted to fetch for,
+  // so we don't re-fetch the same card repeatedly even if state changes.
+  const fetchedIdsRef = useRef<Set<string>>(new Set());
+
   // Fetch flashcards
   useEffect(() => {
     const q = query(
@@ -69,8 +74,8 @@ export default function Dashboard({ user }: { user: User }) {
       const cards = snapshot.docs.map((doc) => ({
         id: doc.id,
         ...doc.data(),
-        createdAt: doc.data().createdAt?.toDate() || new Date(),
-        updatedAt: doc.data().updatedAt?.toDate()
+        createdAt: (doc.data().createdAt as any)?.toDate?.() || new Date(),
+        updatedAt: (doc.data().updatedAt as any)?.toDate?.(),
       })) as FlashcardType[];
       setFlashcards(cards);
       setInitialLoading(false);
@@ -94,86 +99,92 @@ export default function Dashboard({ user }: { user: User }) {
   // Filter flashcards based on search and category
   useEffect(() => {
     let filtered = flashcards;
-    
+
     if (searchTerm) {
-      filtered = filtered.filter(card => 
-        card.front.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        card.back.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (card.category && card.category.toLowerCase().includes(searchTerm.toLowerCase()))
+      const q = searchTerm.toLowerCase();
+      filtered = filtered.filter(
+        (card) =>
+          card.front.toLowerCase().includes(q) ||
+          card.back.toLowerCase().includes(q) ||
+          (card.category && card.category.toLowerCase().includes(q))
       );
     }
-    
+
     if (selectedCategory) {
-      filtered = filtered.filter(card => card.category === selectedCategory);
+      filtered = filtered.filter((card) => card.category === selectedCategory);
     }
-    
+
     setFilteredFlashcards(filtered);
   }, [flashcards, searchTerm, selectedCategory]);
 
+  // Fetch youtube/book links for new flashcards (fetch each card once)
   useEffect(() => {
+    if (flashcards.length === 0) return;
+
     const fetchLinksForCards = async () => {
+      // Read current env keys (if needed)
+      const booksKey = BOOKS_API_KEY;
+      // const youtubeKey = YOUTUBE_API_KEY; // fetchBestYoutubeUrl probably uses its own method; leaving for potential use
+
       for (const card of flashcards) {
+        // skip if we've already fetched for this id
+        if (fetchedIdsRef.current.has(card.id)) continue;
+
+        // mark as attempted so we don't retry repeatedly
+        fetchedIdsRef.current.add(card.id);
+
         // Fetch YouTube link (improved accuracy)
-        if (!videoLinks[card.id]) {
+        (async () => {
           try {
-            console.log(`Fetching YouTube for: "${card.front}"`);
             const bestUrl = await fetchBestYoutubeUrl(card.front);
             if (bestUrl) {
-              console.log(`Found YouTube video: ${bestUrl}`);
               setVideoLinks((prev) => ({ ...prev, [card.id]: bestUrl }));
-            } else {
-              console.log('No accurate YouTube match for:', card.front);
             }
           } catch (error) {
-            console.warn('Error fetching YouTube data:', error);
+            console.warn("Error fetching YouTube data:", error);
           }
-        }
+        })();
 
         // Fetch Book link
-        if (!bookLinks[card.id]) {
+        (async () => {
           try {
-            console.log(`Fetching Books for: "${card.front}"`);
-            const query = encodeURIComponent(card.front);
-            const withKey = `https://www.googleapis.com/books/v1/volumes?q=${query}&maxResults=1&key=${BOOKS_API_KEY}`;
-            const withoutKey = `https://www.googleapis.com/books/v1/volumes?q=${query}&maxResults=1`;
+            const queryStr = encodeURIComponent(card.front);
+            const withKey = booksKey
+              ? `https://www.googleapis.com/books/v1/volumes?q=${queryStr}&maxResults=1&key=${booksKey}`
+              : `https://www.googleapis.com/books/v1/volumes?q=${queryStr}&maxResults=1`;
 
             let bkRes = await fetch(withKey);
 
-            // Fallback: some keys are restricted or API not enabled -> try without key
+            // Fallback: try without key if 403
             if (!bkRes.ok && bkRes.status === 403) {
-              bkRes = await fetch(withoutKey);
+              bkRes = await fetch(`https://www.googleapis.com/books/v1/volumes?q=${queryStr}&maxResults=1`);
             }
 
             if (!bkRes.ok) {
               console.warn(`Books API warning: ${bkRes.status} ${bkRes.statusText}`);
-              continue;
+              return;
             }
 
             const bkData = await bkRes.json();
-            console.log('Books response:', bkData);
-
             const bkLink = bkData.items?.[0]?.volumeInfo?.infoLink;
             if (bkLink) {
-              console.log(`Found Book link: ${bkLink}`);
               setBookLinks((prev) => ({ ...prev, [card.id]: bkLink }));
-            } else {
-              console.log('No book found for:', card.front);
             }
           } catch (error) {
-            console.warn('Error fetching Books data:', error);
+            console.warn("Error fetching Books data:", error);
           }
-        }
+        })();
       }
     };
-    
-    if (flashcards.length > 0) {
-      fetchLinksForCards();
-    }
-  }, [flashcards, YOUTUBE_API_KEY, BOOKS_API_KEY, videoLinks, bookLinks]);
+
+    fetchLinksForCards();
+    // Only re-run when the flashcards list changes.
+    // We intentionally DO NOT include videoLinks/bookLinks or env vars here.
+  }, [flashcards]);
 
   const handleAddFlashcard = async () => {
     if (!front.trim() || !back.trim()) return;
-    
+
     setLoading(true);
     try {
       await addDoc(collection(db, "flashcards"), {
@@ -183,20 +194,20 @@ export default function Dashboard({ user }: { user: User }) {
         userId: user.uid,
         createdAt: new Date(),
         completed: false,
-        reviewCount: 0
+        reviewCount: 0,
       });
       setFront("");
       setBack("");
       setCategory("");
-      
+
       // Celebrate adding a new flashcard
       confetti({
         particleCount: 50,
         spread: 60,
-        origin: { y: 0.8 }
+        origin: { y: 0.8 },
       });
     } catch (error) {
-      console.error('Error adding flashcard:', error);
+      console.error("Error adding flashcard:", error);
     } finally {
       setLoading(false);
     }
@@ -204,26 +215,38 @@ export default function Dashboard({ user }: { user: User }) {
 
   const handleDelete = async (id: string) => {
     await deleteDoc(doc(db, "flashcards", id));
-  };  
+    // optional: remove from fetchedIdsRef so if card is re-added with same id we fetch again
+    fetchedIdsRef.current.delete(id);
+    setVideoLinks((prev) => {
+      const copy = { ...prev };
+      delete copy[id];
+      return copy;
+    });
+    setBookLinks((prev) => {
+      const copy = { ...prev };
+      delete copy[id];
+      return copy;
+    });
+  };
 
   const handleMarkCompleted = async (id: string) => {
     const ref = doc(db, "flashcards", id);
-    await updateDoc(ref, { 
+    await updateDoc(ref, {
       completed: true,
-      lastReviewed: new Date()
+      lastReviewed: new Date(),
     });
-    
+
     // Celebrate completion
     confetti({
       particleCount: 100,
       spread: 70,
-      origin: { y: 0.6 }
+      origin: { y: 0.6 },
     });
-    
+
     // Check if all cards are completed for mega celebration
-    const newCompletedCount = flashcards.filter(c => c.completed || c.id === id).length;
+    const newCompletedCount = flashcards.filter((c) => c.completed || c.id === id).length;
     const totalCards = flashcards.length;
-    
+
     if (newCompletedCount === totalCards && totalCards > 0) {
       // Mega celebration for 100% completion
       setTimeout(() => {
@@ -231,7 +254,7 @@ export default function Dashboard({ user }: { user: User }) {
           particleCount: 200,
           spread: 100,
           origin: { y: 0.5 },
-          colors: ['#FFD700', '#FF6B6B', '#4ECDC4', '#45B7D1']
+          colors: ["#FFD700", "#FF6B6B", "#4ECDC4", "#45B7D1"],
         });
       }, 500);
     }
@@ -249,32 +272,32 @@ export default function Dashboard({ user }: { user: User }) {
   const completedCount = flashcards.filter((c) => c.completed).length;
   const totalCount = flashcards.length;
   const progressPercent = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
-  
+
   // Get unique categories
-  const categories = Array.from(new Set(flashcards.map(card => card.category).filter(Boolean)));
-  
+  const categories = Array.from(new Set(flashcards.map((card) => card.category).filter(Boolean)));
+
   // Progress by category
-  const categoryProgress = categories.map(cat => {
-    const catCards = flashcards.filter(card => card.category === cat);
-    const catCompleted = catCards.filter(card => card.completed).length;
+  const categoryProgress = categories.map((cat) => {
+    const catCards = flashcards.filter((card) => card.category === cat);
+    const catCompleted = catCards.filter((card) => card.completed).length;
     return {
-      category: cat,
+      category: cat as string,
       completed: catCompleted,
       total: catCards.length,
-      percentage: Math.round((catCompleted / catCards.length) * 100)
+      percentage: Math.round((catCompleted / catCards.length) * 100),
     };
   });
 
   // Category distribution for side plot (top 5 + Other)
   const categoryCounts = categories
-    .map(cat => ({ category: cat, count: flashcards.filter(card => card.category === cat).length }))
+    .map((cat) => ({ category: cat, count: flashcards.filter((card) => card.category === cat).length }))
     .sort((a, b) => b.count - a.count);
   const topCats = categoryCounts.slice(0, 5);
   const otherCount = categoryCounts.slice(5).reduce((sum, c) => sum + c.count, 0);
-  const catColors = ['#60a5fa', '#a78bfa', '#34d399', '#f472b6', '#f59e0b', '#94a3b8'];
+  const catColors = ["#60a5fa", "#a78bfa", "#34d399", "#f472b6", "#f59e0b", "#94a3b8"];
   const categoryPieData = [
-    ...topCats.map((c, i) => ({ title: c.category, value: c.count, color: catColors[i % catColors.length] })),
-    ...(otherCount > 0 ? [{ title: 'Other', value: otherCount, color: catColors[5] }] : [])
+    ...topCats.map((c, i) => ({ title: c.category as string, value: c.count, color: catColors[i % catColors.length] })),
+    ...(otherCount > 0 ? [{ title: "Other", value: otherCount, color: catColors[5] }] : []),
   ];
 
   return (
@@ -282,7 +305,7 @@ export default function Dashboard({ user }: { user: User }) {
       {/* Header */}
       <div className="flex flex-col md:flex-row md:justify-between md:items-center mb-6 space-y-4 md:space-y-0">
         <h1 className="text-2xl md:text-3xl font-bold bg-gradient-to-r from-indigo-300 via-violet-300 to-fuchsia-300 bg-clip-text text-transparent">
-          Welcome, {user.email?.split('@')[0]}!
+          Welcome, {user.email?.split("@")[0]}!
         </h1>
         <div className="flex items-center space-x-3">
           <ThemeToggle />
@@ -294,7 +317,7 @@ export default function Dashboard({ user }: { user: User }) {
           </button>
         </div>
       </div>
-      
+
       {/* Search and Filter Bar */}
       <div className="mb-6 space-y-3">
         <div className="flex flex-col md:flex-row gap-3">
@@ -320,13 +343,17 @@ export default function Dashboard({ user }: { user: User }) {
             onChange={(e) => setSelectedCategory(e.target.value)}
             className="p-3 rounded-lg bg-white/10 backdrop-blur-md ring-1 ring-white/20 text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/60"
           >
-            <option value="" className="bg-gray-800">All Categories</option>
-            {categories.map(cat => (
-              <option key={cat} value={cat} className="bg-gray-800">{cat}</option>
+            <option value="" className="bg-gray-800">
+              All Categories
+            </option>
+            {categories.map((cat) => (
+              <option key={cat} value={cat} className="bg-gray-800">
+                {cat}
+              </option>
             ))}
           </select>
         </div>
-        
+
         {/* Category Progress Bars */}
         {categories.length > 0 && (
           <div className="space-y-2">
@@ -336,13 +363,15 @@ export default function Dashboard({ user }: { user: User }) {
                 <div key={category} className="bg-white/10 backdrop-blur-md rounded-lg p-3 ring-1 ring-white/20">
                   <div className="flex justify-between items-center mb-2">
                     <span className="font-medium text-sm text-slate-100">{category}</span>
-                    <span className="text-sm text-slate-300">{completed}/{total}</span>
+                    <span className="text-sm text-slate-300">
+                      {completed}/{total}
+                    </span>
                   </div>
                   <div className="w-full bg-slate-700/60 rounded-full h-2">
-                    <div 
+                    <div
                       className="h-2 rounded-full transition-all duration-300 bg-gradient-to-r from-indigo-400 via-violet-400 to-fuchsia-400"
                       style={{ width: `${percentage}%` }}
-                    ></div>
+                    />
                   </div>
                   <div className="text-xs text-slate-300 mt-1">{percentage}% complete</div>
                 </div>
@@ -392,13 +421,12 @@ export default function Dashboard({ user }: { user: User }) {
               <div className="mb-3">
                 <div className="flex justify-between text-xs text-slate-300 mb-1">
                   <span>Completed</span>
-                  <span>{completedCount}/{totalCount}</span>
+                  <span>
+                    {completedCount}/{totalCount}
+                  </span>
                 </div>
                 <div className="w-full bg-slate-700/60 rounded-full h-3">
-                  <div
-                    className="h-3 rounded-full bg-gradient-to-r from-emerald-400 to-emerald-500"
-                    style={{ width: `${progressPercent}%` }}
-                  />
+                  <div className="h-3 rounded-full bg-gradient-to-r from-emerald-400 to-emerald-500" style={{ width: `${progressPercent}%` }} />
                 </div>
               </div>
 
@@ -422,13 +450,7 @@ export default function Dashboard({ user }: { user: User }) {
               {categoryPieData.length > 0 && (
                 <div className="grid grid-cols-2 gap-3 items-center">
                   <div>
-                    <PieChart
-                      data={categoryPieData}
-                      lineWidth={20}
-                      radius={30}
-                      animate
-                      label={() => ""}
-                    />
+                    <PieChart data={categoryPieData} lineWidth={20} radius={30} animate label={() => ""} />
                   </div>
                   <div className="space-y-1">
                     {categoryPieData.map((d, idx) => (
@@ -489,7 +511,7 @@ export default function Dashboard({ user }: { user: User }) {
               disabled={loading || !front.trim() || !back.trim()}
               className="w-full disabled:cursor-not-allowed text-white py-3 rounded-lg font-medium transition-all bg-gradient-to-r from-indigo-500 via-violet-500 to-fuchsia-500 hover:from-indigo-600 hover:via-violet-600 hover:to-fuchsia-600 disabled:opacity-50 shadow-lg"
             >
-              {loading ? '🔄 Adding...' : '✨ Add Flashcard'}
+              {loading ? "🔄 Adding..." : "✨ Add Flashcard"}
             </button>
           </div>
         </div>
@@ -514,8 +536,8 @@ export default function Dashboard({ user }: { user: User }) {
           {searchTerm || selectedCategory ? (
             <button
               onClick={() => {
-                setSearchTerm('');
-                setSelectedCategory('');
+                setSearchTerm("");
+                setSelectedCategory("");
               }}
               className="text-sm bg-gray-500 hover:bg-gray-600 text-white px-3 py-1 rounded-md"
             >
@@ -523,7 +545,7 @@ export default function Dashboard({ user }: { user: User }) {
             </button>
           ) : null}
         </div>
-        
+
         {initialLoading ? (
           <SkeletonGrid />
         ) : filteredFlashcards.length === 0 ? (

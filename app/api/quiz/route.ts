@@ -3,6 +3,17 @@ import { NextRequest, NextResponse } from "next/server";
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.0-flash";
 
+type GeminiJsonResponse = {
+  candidates?: Array<{
+    content?: {
+      parts?: Array<{
+        text?: string;
+        inlineData?: { data?: string };
+      }>;
+    };
+  }>;
+};
+
 export async function POST(req: NextRequest) {
   if (!GEMINI_API_KEY) {
     return NextResponse.json(
@@ -78,7 +89,7 @@ Respond with JSON matching this TypeScript type:
       );
     }
 
-    const data = (await res.json()) as any;
+    const data = (await res.json()) as GeminiJsonResponse;
     const part = data?.candidates?.[0]?.content?.parts?.[0];
     let raw = "";
 
