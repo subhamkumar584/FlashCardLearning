@@ -27,9 +27,11 @@ import { SkeletonGrid } from "./Loading";
 import StudySageAssistant from "./StudySageAssistant";
 import confetti from "canvas-confetti";
 
-// NOTE: env vars are read inside effects or functions, but they should NOT be included in dependency arrays.
-const YOUTUBE_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_API_KEY;
+// NOTE: we intentionally only keep BOOKS_API_KEY because YOUTUBE_API_KEY is not used here.
 const BOOKS_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_API_KEY;
+
+// Lightweight type for Firestore Timestamp-like object to avoid `any`.
+type FirestoreTimestamp = { toDate: () => Date };
 
 interface User {
   uid: string;
@@ -71,12 +73,18 @@ export default function Dashboard({ user }: { user: User }) {
       orderBy("createdAt", "desc")
     );
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const cards = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-        createdAt: (doc.data().createdAt as any)?.toDate?.() || new Date(),
-        updatedAt: (doc.data().updatedAt as any)?.toDate?.(),
-      })) as FlashcardType[];
+      const cards = snapshot.docs.map((docSnap) => {
+        const data = docSnap.data() as Record<string, unknown>;
+        const createdAt = (data.createdAt as FirestoreTimestamp | undefined)?.toDate?.() ?? new Date();
+        const updatedAt = (data.updatedAt as FirestoreTimestamp | undefined)?.toDate?.();
+
+        return ({
+          id: docSnap.id,
+          ...data,
+          createdAt,
+          updatedAt,
+        } as unknown) as FlashcardType;
+      });
       setFlashcards(cards);
       setInitialLoading(false);
     });
@@ -122,9 +130,7 @@ export default function Dashboard({ user }: { user: User }) {
     if (flashcards.length === 0) return;
 
     const fetchLinksForCards = async () => {
-      // Read current env keys (if needed)
       const booksKey = BOOKS_API_KEY;
-      // const youtubeKey = YOUTUBE_API_KEY; // fetchBestYoutubeUrl probably uses its own method; leaving for potential use
 
       for (const card of flashcards) {
         // skip if we've already fetched for this id

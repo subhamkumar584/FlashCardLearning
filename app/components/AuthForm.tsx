@@ -2,7 +2,6 @@
 import { useState } from "react";
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, sendPasswordResetEmail } from "firebase/auth";
 import { auth } from "@/firebase/config";
-import { useRouter } from "next/navigation";
 
 type Props = {
   mode: "login" | "signup";
@@ -16,7 +15,6 @@ export default function AuthForm({ mode, onAuthSuccess }: Props) {
   const [error, setError] = useState("");
   const [isResetting, setIsResetting] = useState(false);
   const [success, setSuccess] = useState("");
-  const router = useRouter();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -59,6 +57,7 @@ export default function AuthForm({ mode, onAuthSuccess }: Props) {
       setIsResetting(false);
     }
   };
+
   return (
     <div className="w-full max-w-md mx-auto p-4">
       <form
@@ -69,11 +68,13 @@ export default function AuthForm({ mode, onAuthSuccess }: Props) {
           {mode === "login" ? "🔐 Welcome Back" : "🚀 Create an Account"}
         </h2>
         <p className="text-center text-slate-300 mb-6 text-sm">
-          {mode === "login" ? "Sign in to continue your learning journey" : "Join and start building powerful flashcards"}
+          {mode === "login"
+            ? "Sign in to continue your learning journey"
+            : "Join and start building powerful flashcards"}
         </p>
 
-        {error && <p className="text-rose-400 text-sm mb-3 text-center" role="alert" aria-live="polite">{error}</p>}
-        {success && <p className="text-emerald-400 text-sm mb-3 text-center" role="status" aria-live="polite">{success}</p>}
+        {error && <p className="text-rose-400 text-sm mb-3 text-center">{error}</p>}
+        {success && <p className="text-emerald-400 text-sm mb-3 text-center">{success}</p>}
 
         <input
           type="email"
@@ -96,7 +97,6 @@ export default function AuthForm({ mode, onAuthSuccess }: Props) {
           <span
             className="absolute top-1/2 right-3 -translate-y-1/2 cursor-pointer text-sm text-slate-200"
             onClick={() => setShowPassword(!showPassword)}
-            aria-label="Toggle password visibility"
           >
             {showPassword ? "🙈" : "👁️"}
           </span>
