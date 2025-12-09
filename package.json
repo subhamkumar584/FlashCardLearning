@@ -11,7 +11,7 @@
   "dependencies": {
     "canvas-confetti": "^1.9.3",
     "firebase": "^11.9.1",
-    "next": "^15.5.4",
+    "next": "^16.0.8",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-minimal-pie-chart": "^9.1.0",
